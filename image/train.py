@@ -1,3 +1,20 @@
+"""
+Goals
+- Predict 14 future close values for a stock.
+
+Design
+- Scale features to prevent feature dominance.
+- Re-train model for each prediction.
+- Measure mean squared error after each training.
+- Measure future importance after each training.
+- Use GridSearchCV to find optimal hyperparameters.
+
+Feature strategy
+- The EMA reacts faster to price changes, capturing recent trends, while the 20-day SMA will offer a smoother 
+  perspective on medium-term trends. Together, these can signal trend shifts without being overly sensitive 
+  to short-term volatility.
+"""
+
 import os
 
 import joblib
@@ -7,6 +24,20 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+
+
+def feature_importance(model, feature_names):
+    feature_importance = model.feature_importances_
+
+    feature_importance_df = pd.DataFrame(
+        {"Feature": feature_names, "Importance": feature_importance}
+    )
+
+    feature_importance_df = feature_importance_df.sort_values(
+        by="Importance", ascending=False
+    )
+
+    print("Feature importance:\n", feature_importance_df)
 
 
 def fetch_data(symbol="IBM", apikey="demo"):
@@ -26,16 +57,56 @@ def fetch_data(symbol="IBM", apikey="demo"):
     return data_list
 
 
-def train(df, model, scaler):
-    features = df[
-        [
-            "Y_Close",
-            "Y_SMA_20",
-            "Y_EMA_10",
-        ]
-    ].values
-    target = df["close"].values
+def feature_dtypes(df):
+    updated_df = df.copy()
+    float_columns = ["open", "close", "high", "low", "Y_EMA_5", "Y_SMA_20", "Y_Close"]
+    for float_column in float_columns:
+        if float_column in updated_df:
+            updated_df[float_column] = updated_df[float_column].astype("float64")
 
+    int_columns = ["volume"]
+    for int_column in int_columns:
+        if int_column in updated_df:
+            updated_df[int_column] = updated_df[int_column].astype("int64")
+    return updated_df
+
+
+def preprocess(df):
+    processed_df = df.copy()
+    processed_df.columns = processed_df.columns.str.replace(
+        r"^\d+\.\s*", "", regex=True
+    )
+
+    processed_df = feature_dtypes(processed_df)
+
+    processed_df["date"] = pd.to_datetime(df["date"])
+    processed_df.set_index("date", inplace=True)
+
+    processed_df["Y_Close"] = processed_df["close"].shift(1)
+    processed_df["SMA_20"] = processed_df["close"].rolling(window=10).mean()
+    processed_df["Y_SMA_20"] = processed_df["SMA_20"].shift(1)
+    processed_df["EMA_10"] = processed_df["close"].ewm(span=10, adjust=False).mean()
+    processed_df["Y_EMA_10"] = processed_df["EMA_10"].shift(1)
+
+    processed_df = processed_df[["Y_Close", "Y_SMA_20", "Y_EMA_10", "close"]].dropna()
+
+    return processed_df
+
+
+def mse(model, X_test, y_test):
+    mse_predictions = model.predict(X_test)
+    mse = mean_squared_error(y_test, mse_predictions)
+    # TODO: Stuck at around 4.5 for now. Get to below 1.0
+    print("Mean Squared Error:", mse)
+
+
+def train(df, scaler):
+    feature_names = ["Y_Close", "Y_SMA_20", "Y_EMA_10"]
+    model = GradientBoostingRegressor(
+        n_estimators=500, max_depth=4, learning_rate=0.05, random_state=42
+    )
+    features = df[feature_names].values
+    target = df["close"].values
     features_scaled = scaler.fit_transform(features)
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -43,62 +114,20 @@ def train(df, model, scaler):
     )
 
     model.fit(X_train, y_train)
+    mse(model, X_test, y_test)
+    feature_importance(model, feature_names)
+    return model
 
-    predictions = model.predict(X_test)
-    mse = mean_squared_error(y_test, predictions)
-    # TODO: Stuck at around 4.5 for now. Get to below 1.0
-    print("Mean Squared Error:", mse)
-
-
-def feature_dtypes(df):
-    float_columns = ["open", "close", "high", "low", "Y_EMA_5", "Y_SMA_20", "Y_Close"]
-    for float_column in float_columns:
-        if float_column in df:
-            df[float_column] = df[float_column].astype("float64")
-
-    int_columns = ["volume"]
-    for int_column in int_columns:
-        if int_column in df:
-            df[int_column] = df[int_column].astype("int64")
-
-
-df = pd.DataFrame(fetch_data())
-df.columns = df.columns.str.replace(r"^\d+\.\s*", "", regex=True)
-
-feature_dtypes(df)
-
-df["date"] = pd.to_datetime(df["date"])
-df.set_index("date", inplace=True)
-
-df["Y_Close"] = df["close"].shift(1)
-
-"""
-The EMA reacts faster to price changes, capturing recent trends, while the 20-day SMA will offer a smoother 
-  perspective on medium-term trends. Together, these can signal trend shifts without being overly sensitive 
-  to short-term volatility.
-"""
-df["SMA_20"] = df["close"].rolling(window=10).mean()
-df["Y_SMA_20"] = df["SMA_20"].shift(1)
-df["EMA_10"] = df["close"].ewm(span=10, adjust=False).mean()
-df["Y_EMA_10"] = df["EMA_10"].shift(1)
-
-# Delete columns not used. Should be features + target.
-df = df[["Y_Close", "Y_SMA_20", "Y_EMA_10", "close"]].dropna()
-
-model = GradientBoostingRegressor(
-    n_estimators=500, max_depth=4, learning_rate=0.05, random_state=42
-)
 
 scaler = StandardScaler()
 
-train(df, model, scaler)
+df = pd.DataFrame(fetch_data())
+df = preprocess(df)
+model = train(df, scaler)
 
 predictions = []
 historical_closes = df["close"].iloc[-20:].tolist()
-
-# Predict 14 days of closing values
 for _ in range(14):
-    # Create next day's features
     sma_20 = sum(historical_closes[-20:]) / 20
     ema_10 = pd.Series(historical_closes[-10]).ewm(span=10, adjust=False).mean().iloc[0]
     y_close = historical_closes[-1]
@@ -116,8 +145,11 @@ for _ in range(14):
 
     features_future["close"] = predicted_close
     df = pd.concat([df, features_future], ignore_index=True)
-    train(df, model, scaler)
+    model = train(df, scaler)
     historical_closes.append(predicted_close)
+
+for prediction in predictions:
+    print(prediction)
 
 prediction_output_dir = "/opt/ml/output/data"
 os.makedirs(prediction_output_dir, exist_ok=True)
