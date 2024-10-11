@@ -102,8 +102,25 @@ def mse(model, X_test, y_test):
 
 def train(df, scaler):
     feature_names = ["Y_Close", "Y_SMA_20", "Y_EMA_10"]
+    """
+    n_estimators        = Number of trees to be used in the model. More can increase performance but could lead 
+                          to overfitting.
+    max_depth           = Max depth of trees. Deeper trees can capture more complex patters but may lead to 
+                          overfitting.
+    learning_rate       = Contribution of each tree in final prediction. Smaller rate means the model learns 
+                          more slowly.
+    validation_fraction = Fraction of data to be used as a validation set for early stopping.
+    n_iter_no_change    = Number of iterations with no improvement to wait before stopping.
+    tol                 = Minimum improvment to be considered significant.
+    """
     model = GradientBoostingRegressor(
-        n_estimators=500, max_depth=4, learning_rate=0.05, random_state=42
+        n_estimators=100,
+        max_depth=4,
+        learning_rate=0.05,
+        validation_fraction=0.1,
+        n_iter_no_change=5,
+        tol=0.01,
+        random_state=42,
     )
     features = df[feature_names].values
     target = df["close"].values
