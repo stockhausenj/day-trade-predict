@@ -9,6 +9,23 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
+def fetch_data(symbol="IBM", apikey="demo"):
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&outputsize=full&apikey={apikey}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+    else:
+        raise Exception("Failed to fetch stock data...")
+
+    time_series_data = data["Time Series (Daily)"]
+    data_list = []
+    for date, metrics in time_series_data.items():
+        metrics["date"] = date
+        data_list.append(metrics)
+    data_list.reverse()
+    return data_list
+
+
 def train(df, model, scaler):
     features = df[
         [
@@ -45,22 +62,7 @@ def feature_dtypes(df):
             df[int_column] = df[int_column].astype("int64")
 
 
-# Load dataset
-url = "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=IBM&outputsize=full&apikey=demo"
-response = requests.get(url)
-if response.status_code == 200:
-    data = response.json()
-else:
-    raise Exception("Failed to fetch stock data...")
-
-time_series_data = data["Time Series (Daily)"]
-data_list = []
-for date, metrics in time_series_data.items():
-    metrics["date"] = date
-    data_list.append(metrics)
-data_list.reverse()
-
-df = pd.DataFrame(data_list)
+df = pd.DataFrame(fetch_data())
 df.columns = df.columns.str.replace(r"^\d+\.\s*", "", regex=True)
 
 feature_dtypes(df)
@@ -80,15 +82,8 @@ df["Y_SMA_20"] = df["SMA_20"].shift(1)
 df["EMA_10"] = df["close"].ewm(span=10, adjust=False).mean()
 df["Y_EMA_10"] = df["EMA_10"].shift(1)
 
-columns = ["Y_Close", "Y_SMA_20", "Y_EMA_10", "close"]
-df = df[columns]
-# df["Y_Price_Diff"] = df["close"].shift(1) - df["close"].shift(2)
-# df["Volatility"] = df["close"].rolling(window=5).std()
-# df["Y_Volatility"] = df["Volatility"].shift(1)
-# df["Momentum"] = df["close"].shift(1) - df["close"].shift(5)
-# df["Log_Price"] = np.log(df["close"])
-
-df = df.dropna()
+# Delete columns not used. Should be features + target.
+df = df[["Y_Close", "Y_SMA_20", "Y_EMA_10", "close"]].dropna()
 
 model = GradientBoostingRegressor(
     n_estimators=500, max_depth=4, learning_rate=0.05, random_state=42
@@ -99,7 +94,6 @@ scaler = StandardScaler()
 train(df, model, scaler)
 
 predictions = []
-
 historical_closes = df["close"].iloc[-20:].tolist()
 
 # Predict 14 days of closing values
@@ -124,7 +118,6 @@ for _ in range(14):
     df = pd.concat([df, features_future], ignore_index=True)
     train(df, model, scaler)
     historical_closes.append(predicted_close)
-
 
 prediction_output_dir = "/opt/ml/output/data"
 os.makedirs(prediction_output_dir, exist_ok=True)
