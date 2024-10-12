@@ -163,7 +163,7 @@ for _ in range(14):
     )
     features_future_scaled = scaler.transform(features_future.values)
 
-    predicted_close = model.predict(features_future_scaled)
+    predicted_close = model.best_estimator_.predict(features_future_scaled)
     predictions.append(predicted_close)
 
     features_future["close"] = predicted_close
