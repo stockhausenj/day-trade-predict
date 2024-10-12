@@ -22,12 +22,12 @@ import pandas as pd
 import requests
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
 def feature_importance(model, feature_names):
-    feature_importance = model.feature_importances_
+    feature_importance = model.best_estimator_.feature_importances_
 
     feature_importance_df = pd.DataFrame(
         {"Feature": feature_names, "Importance": feature_importance}
@@ -113,14 +113,20 @@ def train(df, scaler):
     n_iter_no_change    = Number of iterations with no improvement to wait before stopping.
     tol                 = Minimum improvment to be considered significant.
     """
-    model = GradientBoostingRegressor(
-        n_estimators=100,
-        max_depth=4,
-        learning_rate=0.05,
-        validation_fraction=0.1,
-        n_iter_no_change=5,
-        tol=0.01,
-        random_state=42,
+    param_grid = {
+        "learning_rate": [0.01, 0.02, 0.03, 0.04, 0.05],
+        "n_estimators": [100, 150, 200],
+        "max_depth": [2, 3, 4],
+    }
+    model = GridSearchCV(
+        GradientBoostingRegressor(
+            validation_fraction=0.1,
+            n_iter_no_change=5,
+            tol=0.01,
+            random_state=42,
+        ),
+        param_grid,
+        cv=2,
     )
     features = df[feature_names].values
     target = df["close"].values
