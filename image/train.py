@@ -15,6 +15,7 @@ Feature strategy
   to short-term volatility.
 """
 
+import json
 import os
 
 import joblib
@@ -163,7 +164,7 @@ for _ in range(14):
     )
     features_future_scaled = scaler.transform(features_future.values)
 
-    predicted_close = model.best_estimator_.predict(features_future_scaled)
+    predicted_close = float(model.best_estimator_.predict(features_future_scaled)[0])
     predictions.append(predicted_close)
 
     features_future["close"] = predicted_close
@@ -174,10 +175,13 @@ for _ in range(14):
 for prediction in predictions:
     print(prediction)
 
+predictions_data = {"predictions": predictions}
+
 prediction_output_dir = "/opt/ml/output/data"
 os.makedirs(prediction_output_dir, exist_ok=True)
 prediction_file_path = os.path.join(prediction_output_dir, "predictions.csv")
-predictions.to_csv(prediction_file_path, index=False)
+with open(prediction_file_path, "w") as json_file:
+    json.dump(predictions_data, json_file, indent=4)
 
 # Save model to S3. SageMaker requires model to be in /opt/ml/model/
 model_output_dir = "/opt/ml/model"

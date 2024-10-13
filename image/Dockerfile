@@ -6,6 +6,4 @@ COPY . .
 
 RUN pip install -r requirements.txt
 
-ENV SAGEMAKER_PROGRAM=train.py
-
 ENTRYPOINT ["python", "train.py"]
